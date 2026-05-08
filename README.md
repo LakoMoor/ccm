@@ -1,68 +1,73 @@
-# claude-monitor (Python)
+# ccm
 
-Push traces and spans to [claude-monitor](https://github.com/AlexWortega/claude-monitor)
-from any Python script — wandb-style, zero install dependencies.
+Claude Code CLI with full [claude_monitor](https://github.com/AlexWortega/claudemonitorpython) tracing.
+
+Runs `claude` under the hood, streams every event (thinking, tool calls, results) and writes them as spans to claude_monitor in real time.
+
+## Install
 
 ```bash
-pip install claude-monitor
+pip install git+https://github.com/LakoMoor/ccm.git
 ```
 
-## Quickstart
+Requires [Claude Code](https://claude.ai/code) to be installed and authenticated.
+
+## Setup
+
+```bash
+ccm init --monitor-key ba_...
+```
+
+Saves your key to `~/.config/ccm/config.toml`. That's it — no Anthropic API key needed, Claude Code already has it.
+
+## Usage
+
+```bash
+# one-shot
+ccm "fix the failing tests"
+
+# interactive
+ccm
+
+# with options
+ccm "refactor auth module" --project my-app --session run-42 --cwd ~/repos/myapp
+```
+
+## What gets traced
+
+Every event from the Claude stream maps to a claude_monitor span:
+
+| Claude event | Span kind |
+|---|---|
+| user prompt | `user_msg` |
+| `thinking` block | `thinking` |
+| `tool_use` block | `tool_use` |
+| `tool_result` | `tool_result` (linked to parent `tool_use`) |
+| `text` block | `assistant_msg` |
+| final result | trace outcome `good` / `bad` + cost + duration |
+
+## Python API
 
 ```python
-import claude_monitor as cm
+from claude_monitor import Agent
 
-cm.init(
-    api_key="ba_…",          # or set CLAUDE_MONITOR_API_KEY
-    project="my-bot",
-    session_id="run-001",    # idempotent: same id resumes the same trace
-    task_name="demo task",
+agent = Agent(
+    monitor_api_key="ba_...",
+    project="my-app",
     model="claude-opus-4-7",
 )
 
-cm.log_user("hello")
-cm.log_assistant("hi there")
-cm.log_tool_use("Read", {"file_path": "x.py"})
-cm.log_tool_result("file contents")
-
-cm.finish(outcome="good", metadata={"k": "v"})
+agent.run("add docstrings to all functions in utils.py", cwd="/path/to/repo")
 ```
 
-## Class-based / `with`
+## Options
 
-```python
-import claude_monitor as cm
-
-with cm.Run(project="my-bot", session_id="run-002") as run:
-    run.log_user("how do I install jq?")
-    run.log_assistant("brew install jq")
-    # implicit run.finish() on exit; on exception → outcome="bad" + error metadata
 ```
+ccm [task] [options]
 
-## API
-
-* `cm.init(**kwargs) -> Run` — create the module-level run (wandb style).
-* `cm.Run(**kwargs)` — explicit run; identical kwargs.
-* `cm.log_user(text)`, `cm.log_assistant(text)`, `cm.log_thinking(text)`,
-  `cm.log_tool_use(tool, input)`, `cm.log_tool_result(text, parent_span_id=…)`,
-  `cm.log_attachment(name, attributes)` — convenience helpers.
-* `cm.log(kind=…, name=…, text=…, attributes=…, parent_span_id=…)` — generic.
-* `cm.finish(outcome="good"|"bad"|"neutral", metadata={…}, task_name=…, model=…)`.
-
-### Configuration
-
-| Argument         | Env var                       | Default |
-|------------------|-------------------------------|---------|
-| `api_key`        | `CLAUDE_MONITOR_API_KEY`      | required |
-| `api_base`       | `CLAUDE_MONITOR_API_BASE`     | hosted Railway URL |
-| `session_id`     | —                             | random `py-<uuid>` |
-| `project`        | —                             | `None` |
-| `scaffold`       | —                             | `"python-sdk"` |
-| `machine_id`     | —                             | derived from hostname |
-
-### Span kinds
-
-`user_msg | assistant_msg | tool_use | tool_result | thinking | attachment`
-
-Common attributes the UI surfaces directly: `text` (string), `result_text`
-(string), `tool_input` (object). Anything else lands in the raw JSON view.
+  --project    Project name in claude_monitor   (default: default)
+  --session    Session ID — resumes existing trace
+  --model      Claude model                     (default: claude-sonnet-4-6)
+  --cwd        Working directory for the agent  (default: .)
+  --quiet      Suppress local output
+```
